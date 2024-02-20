@@ -1,5 +1,7 @@
+#include "portmacro.h"
 #include <driver/gpio.h>
 #include <freertos/FreeRTOS.h>
+#include <stdio.h>
 
 #define LED_PIN GPIO_NUM_3
 #define BUTTON_PIN GPIO_NUM_5
@@ -46,8 +48,24 @@ void led_task()
     }
 }
 
+void signal_taker() {
+    xSemaphoreTake(xSemaphore, portMAX_DELAY);
+    printf("Semaphore taken!\n");
+    xSemaphoreGive(xSemaphore);
+    vTaskDelete(NULL);
+}
+
+void signal_giver() {
+    sleep_seconds(3.0f);
+    printf("Waited 3 seconds, giving semaphore now.\n");
+    xSemaphoreGive(xSemaphore);
+    vTaskDelete(NULL);
+}
+
 void app_main(void) {
-    configure();
+    // configure();
     xSemaphore = xSemaphoreCreateBinary();
-    xTaskCreate(led_task, "LED", 1024, NULL, 1, NULL);
+    xTaskCreate(signal_giver, "giver", 4096, NULL, 1, NULL);
+    xTaskCreate(signal_taker, "taker", 4096, NULL, 1, NULL);
+    // xTaskCreate(led_task, "LED", 1024, NULL, 1, NULL);
 }
