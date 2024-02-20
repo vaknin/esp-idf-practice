@@ -2,70 +2,42 @@
 #include <driver/gpio.h>
 #include <freertos/FreeRTOS.h>
 #include <stdio.h>
+#include <esp_log.h>
 
 #define LED_PIN GPIO_NUM_3
 #define BUTTON_PIN GPIO_NUM_5
 
-SemaphoreHandle_t xSemaphore = NULL;
-
-static void gpio_isr_handler() {
-    if (gpio_get_level(BUTTON_PIN))
-        xSemaphoreGiveFromISR(xSemaphore, NULL);
-}
-
-static void configure() {
-
-    // Button
-    gpio_install_isr_service(0);
-    gpio_reset_pin(BUTTON_PIN);
-    gpio_set_direction(BUTTON_PIN, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(BUTTON_PIN, GPIO_PULLDOWN_ONLY);
-    gpio_set_intr_type(BUTTON_PIN, GPIO_INTR_ANYEDGE);
-    gpio_isr_handler_add(BUTTON_PIN, gpio_isr_handler, NULL);
-
-    // LED
-    gpio_reset_pin(LED_PIN);
-    gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
-}
-
+SemaphoreHandle_t xMutex = NULL;
+int shared_counter = 0;
+float delay = 0.01;
+static char TAG[] = "Log:";
 
 void sleep_seconds(float seconds) {
     vTaskDelay(seconds * 1000 / portTICK_PERIOD_MS);
 }
 
-void led_task()
-{
+void signal_taker() {
     while (1) {
-        printf("not semaphored!\n");
-        if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE) {
-            printf("semaphored!\n");
-            gpio_set_level(LED_PIN, 1);
-            while (gpio_get_level(BUTTON_PIN)) {
-                sleep_seconds(.1f);
-            }
-            gpio_set_level(LED_PIN, 0);
-        }
+        xSemaphoreTake(xMutex, portMAX_DELAY);
+        shared_counter++;
+        xSemaphoreGive(xMutex);
+        ESP_LOGI(TAG, "Incremented to {%d}", shared_counter);
+        sleep_seconds(delay);
     }
 }
 
-void signal_taker() {
-    xSemaphoreTake(xSemaphore, portMAX_DELAY);
-    printf("Semaphore taken!\n");
-    xSemaphoreGive(xSemaphore);
-    vTaskDelete(NULL);
-}
-
 void signal_giver() {
-    sleep_seconds(3.0f);
-    printf("Waited 3 seconds, giving semaphore now.\n");
-    xSemaphoreGive(xSemaphore);
-    vTaskDelete(NULL);
+    while (1) {
+        xSemaphoreTake(xMutex, portMAX_DELAY);
+        shared_counter--;
+        xSemaphoreGive(xMutex);
+        ESP_LOGI(TAG, "Decremented to {%d}", shared_counter);
+        sleep_seconds(delay);
+    }
 }
 
 void app_main(void) {
-    // configure();
-    xSemaphore = xSemaphoreCreateBinary();
+    xMutex = xSemaphoreCreateMutex();
     xTaskCreate(signal_giver, "giver", 4096, NULL, 1, NULL);
     xTaskCreate(signal_taker, "taker", 4096, NULL, 1, NULL);
-    // xTaskCreate(led_task, "LED", 1024, NULL, 1, NULL);
 }
